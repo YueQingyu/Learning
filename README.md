@@ -77,7 +77,7 @@
 
 | 模型 | 是否完成 | 数据集/任务 | 是否训练成功 | 主要问题 | 代码链接 |
 |---|---|---|---|---|---|
-| CNN | 是 | 用单张猫图片进行分析 | 是 | 训练数据可能较少，没有进行广泛应用 |  |
+| CNN | 是 | 用单张猫图片进行分析 | 是 | 训练数据可能较少，没有进行广泛应用 | https://github.com/YueQingyu/Learning/blob/main/CNN%E4%BB%A3%E7%A0%81 |
 | LSTM |  |  |  |  |  |
 | Transformer |  |  |  |  |  |
 | Vision Transformer |  |  |  |  |  |
