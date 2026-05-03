@@ -1,0 +1,269 @@
+import numpy as np
+from PIL import Image
+img = Image.open('cat.png')
+img = img.resize((64, 64))
+img_np = np.array(img, dtype=np.float32)
+print(img_np.shape)
+
+#卷积算法
+def my_conv2d(img, weight, hi, wi, ci, co, kernel, stride, pad):
+  '''
+  img:输入图片数据
+  weight:权值数据（卷积核）
+  hi:输入图片高度-height
+  wi:输入图片宽度-width
+  ci:输入图片通道-channel,与weight的channel一致
+  co:输出图片通道-channle,与weight的个数一致
+  kernel:卷积核的大小
+  stride:卷积核在输入图片上滑动步长
+  pad:输入图片周围补充的pad值
+  '''
+
+# 计算输出尺寸
+  ho = (hi + 2 * pad - kernel) // stride + 1
+  wo = (wi + 2 * pad - kernel) // stride + 1
+
+  # 将权值数据 reshape 成 co, kh, kw, ci 的形式
+  weight = np.array(weight).reshape(co, kernel, kernel, ci)
+  # 在输入图片周围补充pad值
+  img_pad = np.pad(img, ((pad, pad), (pad, pad), (0, 0)), 'constant')
+  # 初始化输出图片
+  img_out = np.zeros((ho, wo, co))
+
+  # 卷积计算的核心逻辑
+  # 其效果类似于 nn.conv2d
+  for co_ in range(co):
+    for ho_ in range(ho):
+      in_h_origin = ho_ * stride - pad
+      for wo_ in range(wo):
+        in_w_origin = wo_ * stride - pad
+        filter_h_start = max(0, -in_h_origin)
+        filter_w_start = max(0, -in_w_origin)
+        filter_h_end = min(kernel, hi - in_h_origin)
+        filter_w_end = min(kernel, wi - in_w_origin)
+        acc = float(0)
+        for kh_ in range(filter_h_start, filter_h_end):
+          hi_index = in_h_origin + kh_
+          for kw_ in range(filter_w_start, filter_w_end):
+            wi_index = in_w_origin + kw_
+            for ci_ in range(ci):
+              in_data = img_pad[hi_index][wi_index][ci_]
+              weight_data = weight[co_][kh_][kw_][ci_]
+              acc = acc + in_data * weight_data
+            img_out[ho_][wo_][co_] = acc
+  return img_out
+
+
+# 定义卷积核并调用手写卷积，显示特征图
+# 1. 定义一个垂直边缘检测核
+kernel = np.zeros((1, 3, 3, 3))   # (输出通道数, 核高, 核宽, 输入通道数)
+edge_kernel_2d = np.array([[-1, 0, 1],
+                           [-2, 0, 2],
+                           [-1, 0, 1]])
+# 让三个输入通道使用相同的卷积核
+kernel[0, :, :, 0] = edge_kernel_2d
+kernel[0, :, :, 1] = edge_kernel_2d
+kernel[0, :, :, 2] = edge_kernel_2d
+
+# 2. 调用手写卷积函数
+output = my_conv2d(
+    img=img_np,
+    weight=kernel,       # 卷积核 (1,3,3,3)
+    hi=64, wi=64, ci=3,  # 输入高、宽、通道数
+    co=1,                # 输出通道数
+    kernel=3,            # 卷积核大小
+    stride=1,            # 步长
+    pad=0                # 填充
+)
+
+print("特征图形状:", output.shape)  # 应该是 (62, 62, 1)
+
+# 3. 显示原图和特征图
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8, 4))
+
+plt.subplot(1, 2, 1)
+plt.imshow(img_np.astype(np.uint8))  # 原图（转回整数）
+plt.title("Original Cat")
+plt.axis("off")
+
+plt.subplot(1, 2, 2)
+feature_map = output[:, :, 0]  # 取出第一个（也是唯一一个）输出通道
+plt.imshow(feature_map, cmap="gray")
+plt.title("Vertical Edge Feature Map")
+plt.axis("off")
+
+plt.show()
+
+
+# 水平边缘检测核
+kernel_h = np.zeros((1, 3, 3, 3))
+h_kernel_2d = np.array([[-1, -2, -1],
+                        [ 0,  0,  0],
+                        [ 1,  2,  1]])
+kernel_h[0,:,:,0] = h_kernel_2d
+kernel_h[0,:,:,1] = h_kernel_2d
+kernel_h[0,:,:,2] = h_kernel_2d
+
+output_h = my_conv2d(img_np, kernel_h, 64,64,3,1,3,1,0)
+plt.imshow(output_h[:,:,0], cmap='gray')
+plt.title('Horizontal Edge')
+plt.show()
+
+#池化层
+def my_maxpool2d(img, pool_size=2, stride=2):
+    """
+    img: 输入特征图，形状 (H, W, C)
+    pool_size: 池化窗口大小（整数，正方形）
+    stride: 步长（整数）
+    返回: 池化后的特征图，形状 (H_out, W_out, C)
+    """
+    H, W, C = img.shape
+    ph = pw = pool_size
+    s = stride
+    H_out = (H - ph) // s + 1
+    W_out = (W - pw) // s + 1
+    out = np.zeros((H_out, W_out, C))
+    for c in range(C):
+        for i in range(H_out):
+            for j in range(W_out):
+                window = img[i*s:i*s+ph, j*s:j*s+pw, c]
+                out[i, j, c] = np.max(window)
+    return out
+
+# 对卷积输出做池化（垂直边缘特征图）
+pooled = my_maxpool2d(output, pool_size=2, stride=2)
+print("池化后形状:", pooled.shape)
+
+# 显示池化后的特征图
+plt.figure()
+plt.imshow(pooled[:,:,0], cmap='gray')
+plt.title("After MaxPooling (Vertical Edge)")
+plt.axis("off")
+plt.show()
+
+pooled_h = my_maxpool2d(output_h, pool_size=2, stride=2)
+plt.imshow(pooled_h[:,:,0], cmap='gray')
+plt.title("After MaxPooling (Horizontal Edge)")
+plt.axis("off")
+plt.show()
+
+#全连接
+#全连接层（前向传播）
+class MyLinear:
+    def __init__(self, in_features, out_features):
+        self.W = np.random.randn(in_features, out_features) * 0.01
+        self.b = np.zeros((1, out_features))
+    def forward(self, x):
+        return np.dot(x, self.W) + self.b
+
+# 对池化后的垂直边缘特征图进行展平
+flatten = pooled.reshape(1, -1)
+print("展平后形状:", flatten.shape)
+
+# 定义全连接层：输入961维，输出2维
+fc = MyLinear(961, 2)
+scores = fc.forward(flatten)
+print("全连接层输出（分类分数）:", scores)
+
+# 应用softmax得到概率
+def softmax(x):
+    exp_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return exp_x / np.sum(exp_x, axis=1, keepdims=True)
+
+probs = softmax(scores)
+print("概率分布:", probs)
+
+predicted_class = np.argmax(probs, axis=1)[0]
+print("预测类别索引:", predicted_class)
+if predicted_class == 0:
+    print("模型认为：这张图更像“猫”")
+else:
+    print("模型认为：这张图更像“非猫”")
+
+
+    # 定义带反向传播的全连接层
+    class MyLinearWithTrain:
+        def __init__(self, in_dim, out_dim):
+            self.W = np.random.randn(in_dim, out_dim) * 0.01
+            self.b = np.zeros(out_dim)
+
+        def forward(self, x):
+            self.x = x
+            return np.dot(x, self.W) + self.b
+
+        def backward(self, grad_out, lr):
+            grad_W = np.dot(self.x.T, grad_out)
+            grad_b = np.sum(grad_out, axis=0)
+            grad_in = np.dot(grad_out, self.W.T)
+            self.W -= lr * grad_W
+            self.b -= lr * grad_b
+            return grad_in
+
+
+    # 手写交叉熵损失
+    def cross_entropy_loss(scores, label):
+        # scores: (1,2), label: 0或1
+        exp_scores = np.exp(scores - np.max(scores))
+        probs = exp_scores / np.sum(exp_scores)
+        loss = -np.log(probs[0, label] + 1e-8)
+        grad = probs.copy()
+        grad[0, label] -= 1
+        return loss, grad
+
+
+    # 用当前猫图片的特征训练全连接层
+    print("\n" + "=" * 50)
+    print("开始训练：使用当前猫图片特征")
+    print("=" * 50)
+
+    # 准备训练数据
+    X_train = flatten  # (1, 961) 当前猫图片的特征
+    y_train = np.array([1])  # 标签：1 表示猫
+
+    # 创建带训练能力的全连接层
+    fc_train = MyLinearWithTrain(961, 2)
+
+    # 训练前预测
+    scores_before = fc_train.forward(X_train)
+    probs_before = softmax(scores_before)
+    print(f"\n训练前预测：")
+    print(f"  分数: {scores_before[0]}")
+    print(f"  概率: {probs_before[0]}")
+    print(f"  预测: {'猫' if np.argmax(probs_before) == 1 else '非猫'}")
+
+    # 训练循环
+    lr = 0.01
+    epochs = 200
+    losses = []
+
+    for epoch in range(epochs):
+        # 前向传播
+        scores = fc_train.forward(X_train)
+        loss, grad = cross_entropy_loss(scores, y_train[0])
+        losses.append(loss)
+
+        # 反向传播
+        fc_train.backward(grad, lr)
+
+        if epoch % 50 == 0:
+            print(f"Epoch {epoch:3d}, Loss = {loss:.4f}")
+
+    # 训练后
+    scores_after = fc_train.forward(X_train)
+    probs_after = softmax(scores_after)
+    print(f"\n训练后预测：")
+    print(f"  分数: {scores_after[0]}")
+    print(f"  概率: {probs_after[0]}")
+    print(f"  预测: {'猫' if np.argmax(probs_after) == 1 else '非猫'}")
+
+    # 绘制损失曲线
+    plt.figure()
+    plt.plot(losses)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training Loss on Single Cat Image')
+    plt.show()
+
+
