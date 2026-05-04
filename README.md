@@ -72,9 +72,9 @@
 - [√] 优化器
 - [√] CNN
 - [√] RNN/LSTM
-- [ ] Attention
+- [√] Attention
 - [√] Transformer
-- [ ] Vision Transformer
+- [√] Vision Transformer
 
 学习资料：
 
@@ -87,14 +87,14 @@
 | 模型 | 是否完成 | 数据集/任务 | 是否训练成功 | 主要问题 | 代码链接 |
 |---|---|---|---|---|---|
 | CNN | 是 | 用单张猫图片进行分析 | 是 | 训练数据可能较少，没有进行广泛应用 | https://github.com/YueQingyu/Learning/blob/main/CNN%E4%BB%A3%E7%A0%81 |
-| LSTM |  |  |  |  |  |
+| LSTM | 是 | 给定前4个数值，预测第5个 | 是 | 初期梯度消失：通过 tanh 和 sigmoid 的合理初始化解决；必须手动维护 hidden state 和 cell state 的传递 | https://github.com/YueQingyu/Learning/blob/main/LSTM%E4%BB%A3%E7%A0%81 |
 | Transformer |  |  |  |  |  |
 | Vision Transformer |  |  |  |  |  |
 
 请说明你对以下内容的理解：
 
 - 卷积层的计算机制：卷积层通过一个可学习的卷积核在输入图像上滑动，在每个位置执行对应元素相乘后求和的操作，得到输出特征图的一个像素值。选择卷积核大小，在输入图像上，从左上角开始，按步长滑动，每个位置，取出与卷积核同样大小的图像块。将图像块与卷积核逐元素相乘，然后求和，得到一个数值，这个数值就是输出特征图对应位置的值
-- LSTM 的门控机制：
+- LSTM 的门控机制：通过遗忘门、输入门、输出门三个可学习的权重矩阵，在每个时间步对拼接后的历史隐藏状态和当前输入执行线性变换加 sigmoid 激活，得到 0-1 门控值，分别控制细胞状态的遗忘、写入和输出，从而实现对序列信息的精准调控。
 - Attention 的计算过程：
 - Transformer Encoder/Decoder 的结构：
 - 位置编码的作用：
