@@ -1,0 +1,236 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import math
+
+
+# 位置编码
+class PositionalEncoding(nn.Module):
+    """使用 sin/cos 函数为每个位置生成唯一编码"""
+
+    def __init__(self, d_model, max_len=5000):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe.unsqueeze(0))
+
+    def forward(self, x):
+        return x + self.pe[:, :x.size(1), :]
+
+
+# 缩放点积注意力
+def scaled_dot_product_attention(Q, K, V, mask=None):
+    """
+    Attention(Q,K,V) = softmax(Q·K^T / √d_k) · V
+    这是 Transformer 的核心公式
+    """
+    d_k = Q.size(-1)
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
+    if mask is not None:
+        scores = scores.masked_fill(mask == 0, -1e9)
+    attention_weights = torch.softmax(scores, dim=-1)
+    output = torch.matmul(attention_weights, V)
+    return output
+
+
+# 多头注意力
+class MultiHeadAttention(nn.Module):
+    """将 Q,K,V 拆成多个头，分别计算注意力后拼接"""
+
+    def __init__(self, d_model, num_heads):
+        super().__init__()
+        assert d_model % num_heads == 0
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.W_Q = nn.Linear(d_model, d_model)
+        self.W_K = nn.Linear(d_model, d_model)
+        self.W_V = nn.Linear(d_model, d_model)
+        self.W_O = nn.Linear(d_model, d_model)
+
+    def split_heads(self, x):
+        batch, seq_len, _ = x.size()
+        return x.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+
+    def combine_heads(self, x):
+        batch, _, seq_len, _ = x.size()
+        return x.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
+
+    def forward(self, Q, K, V, mask=None):
+        Q = self.W_Q(Q);
+        K = self.W_K(K);
+        V = self.W_V(V)
+        Q = self.split_heads(Q);
+        K = self.split_heads(K);
+        V = self.split_heads(V)
+        output = scaled_dot_product_attention(Q, K, V, mask)
+        output = self.combine_heads(output)
+        return self.W_O(output)
+
+
+# 前馈网络
+class FeedForward(nn.Module):
+    """FFN(x) = ReLU(x·W1 + b1)·W2 + b2"""
+
+    def __init__(self, d_model, d_ff):
+        super().__init__()
+        self.linear1 = nn.Linear(d_model, d_ff)
+        self.linear2 = nn.Linear(d_ff, d_model)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        return self.linear2(self.relu(self.linear1(x)))
+
+
+# Encoder Layer
+class EncoderLayer(nn.Module):
+    """一个 Encoder 层 = 多头注意力 + 前馈网络，各带残差连接和层归一化"""
+
+    def __init__(self, d_model, num_heads, d_ff):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, num_heads)
+        self.ffn = FeedForward(d_model, d_ff)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+    def forward(self, x, mask=None):
+        attn_output = self.self_attn(x, x, x, mask)
+        x = self.norm1(x + attn_output)
+        ffn_output = self.ffn(x)
+        x = self.norm2(x + ffn_output)
+        return x
+
+# Decoder Layer
+class DecoderLayer(nn.Module):
+    """Decoder 层：Masked Self-Attention + Cross-Attention + FFN"""
+
+    def __init__(self, d_model, num_heads, d_ff):
+        super().__init__()
+        self.masked_attn = MultiHeadAttention(d_model, num_heads)
+        self.cross_attn = MultiHeadAttention(d_model, num_heads)
+        self.ffn = FeedForward(d_model, d_ff)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.norm3 = nn.LayerNorm(d_model)
+
+    def forward(self, x, encoder_output, src_mask=None, tgt_mask=None):
+        # Masked Self-Attention
+        attn_output = self.masked_attn(x, x, x, tgt_mask)
+        x = self.norm1(x + attn_output)
+        # Cross-Attention
+        attn_output = self.cross_attn(x, encoder_output, encoder_output, src_mask)
+        x = self.norm2(x + attn_output)
+        # FFN
+        ffn_output = self.ffn(x)
+        x = self.norm3(x + ffn_output)
+        return x
+
+
+# 完整 Transformer
+class Transformer(nn.Module):
+    """完整的 Encoder-Decoder 架构"""
+
+    def __init__(self, src_vocab_size, tgt_vocab_size, d_model=64, num_heads=4,
+                 num_encoder_layers=2, num_decoder_layers=2, d_ff=128, max_len=20):
+        super().__init__()
+        self.d_model = d_model
+        self.src_embedding = nn.Embedding(src_vocab_size, d_model)
+        self.tgt_embedding = nn.Embedding(tgt_vocab_size, d_model)
+        self.positional_encoding = PositionalEncoding(d_model, max_len)
+        self.encoder_layers = nn.ModuleList([EncoderLayer(d_model, num_heads, d_ff) for _ in range(num_encoder_layers)])
+        self.decoder_layers = nn.ModuleList([DecoderLayer(d_model, num_heads, d_ff) for _ in range(num_decoder_layers)])
+        self.output_proj = nn.Linear(d_model, tgt_vocab_size)
+
+    def generate_causal_mask(self, sz, device):
+        """生成因果掩码：让 Decoder 只能看到当前位置之前的信息"""
+        mask = torch.triu(torch.ones(sz, sz, device=device), diagonal=1)
+        return mask == 0
+
+    def forward(self, src, tgt, tgt_mask=None):
+        # Embedding + 位置编码
+        src = self.src_embedding(src) * math.sqrt(self.d_model)
+        src = self.positional_encoding(src)
+        tgt = self.tgt_embedding(tgt) * math.sqrt(self.d_model)
+        tgt = self.positional_encoding(tgt)
+
+        # Encoder
+        for layer in self.encoder_layers:
+            src = layer(src)
+
+        # Decoder
+        for layer in self.decoder_layers:
+            tgt = layer(tgt, src, tgt_mask=tgt_mask)
+
+        return self.output_proj(tgt)
+
+# 实践：序列复制任务
+def main():
+    print("=" * 70)
+    print("Transformer 手动实现 - 实践任务：序列复制")
+    print("例如：输入 [1,2,3,4,5] → 输出 [1,2,3,4,5]")
+    print("=" * 70)
+
+    # 配置
+    vocab_size = 15
+    d_model = 32
+    num_heads = 4
+    num_layers = 2
+    d_ff = 64
+    batch_size = 16
+    seq_len = 5
+    epochs = 1000
+
+    model = Transformer(vocab_size, vocab_size, d_model, num_heads, num_layers, num_layers, d_ff, seq_len + 2)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    loss_fn = nn.CrossEntropyLoss()
+
+    # 训练
+    print("\n[训练]")
+    for epoch in range(epochs):
+        src = torch.randint(1, vocab_size, (batch_size, seq_len))
+        tgt = src.clone()
+
+        # Decoder 输入
+        start_token = torch.zeros(batch_size, 1).long()
+        tgt_input = torch.cat([start_token, tgt[:, :-1]], dim=1)
+
+        tgt_mask = model.generate_causal_mask(seq_len, src.device)
+        output = model(src, tgt_input, tgt_mask)
+        loss = loss_fn(output.view(-1, vocab_size), tgt.view(-1))
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        if (epoch + 1) % 100 == 0:
+            print(f"  Epoch {epoch + 1:3d}, Loss: {loss.item():.4f}")
+
+    # 测试
+    print("\n[测试]")
+    model.eval()
+    test_cases = [[1, 2, 3, 4, 5], [7, 3, 9, 2, 1], [2, 4, 6, 8, 10], [5, 1, 8, 3, 12]]
+
+    for test_seq in test_cases:
+        src = torch.tensor([test_seq])
+        tgt_input = torch.zeros(1, 1).long()
+        generated = []
+
+        for _ in range(len(test_seq)):
+            tgt_mask = model.generate_causal_mask(tgt_input.size(1), src.device)
+            with torch.no_grad():
+                output = model(src, tgt_input, tgt_mask)
+                next_token = output[0, -1, :].argmax().item()
+            generated.append(next_token)
+            tgt_input = torch.cat([tgt_input, torch.tensor([[next_token]])], dim=1)
+
+        print(f"  输入: {test_seq} → 输出: {generated} {'✅' if generated == test_seq else '❌'}")
+
+    print("\n" + "=" * 70)
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()
