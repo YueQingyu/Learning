@@ -1,0 +1,277 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
+import math
+from torch.utils.data import DataLoader
+
+# 多头注意力
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, num_heads):
+        super().__init__()
+        assert d_model % num_heads == 0
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+
+        self.W_Q = nn.Linear(d_model, d_model)
+        self.W_K = nn.Linear(d_model, d_model)
+        self.W_V = nn.Linear(d_model, d_model)
+        self.W_O = nn.Linear(d_model, d_model)
+
+    def split_heads(self, x):
+        batch, seq_len, _ = x.size()
+        return x.view(batch, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+
+    def combine_heads(self, x):
+        batch, _, seq_len, _ = x.size()
+        return x.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
+
+    def forward(self, Q, K, V, mask=None):
+        Q = self.W_Q(Q);
+        K = self.W_K(K);
+        V = self.W_V(V)
+        Q = self.split_heads(Q);
+        K = self.split_heads(K);
+        V = self.split_heads(V)
+
+        # Scaled Dot-Product Attention
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_k)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1e9)
+        attention_weights = torch.softmax(scores, dim=-1)
+        output = torch.matmul(attention_weights, V)
+
+        output = self.combine_heads(output)
+        return self.W_O(output)
+
+
+# 前馈网络
+class FeedForward(nn.Module):
+    def __init__(self, d_model, d_ff):
+        super().__init__()
+        self.linear1 = nn.Linear(d_model, d_ff)
+        self.linear2 = nn.Linear(d_ff, d_model)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        return self.linear2(self.relu(self.linear1(x)))
+
+
+# Encoder Layer
+class EncoderLayer(nn.Module):
+    def __init__(self, d_model, num_heads, d_ff):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, num_heads)
+        self.ffn = FeedForward(d_model, d_ff)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+    def forward(self, x):
+        attn_output = self.self_attn(x, x, x)
+        x = self.norm1(x + attn_output)
+        ffn_output = self.ffn(x)
+        x = self.norm2(x + ffn_output)
+        return x
+
+
+# Vision Transformer
+class VisionTransformer(nn.Module):
+    """
+    ViT 模型
+    参数：
+        image_size: 输入图片大小（默认 224，但 MNIST 用 32）
+        patch_size: 小块大小（默认 16）
+        in_channels: 输入通道数（MNIST 是 1，RGB 是 3）
+        num_classes: 分类数（MNIST 是 10）
+        d_model: Transformer 的维度
+        num_heads: 注意力头数
+        num_layers: Encoder 层数
+        d_ff: 前馈网络维度
+        dropout: Dropout 率
+    """
+
+    def __init__(self, image_size=32, patch_size=4, in_channels=1, num_classes=10,
+                 d_model=64, num_heads=4, num_layers=4, d_ff=128, dropout=0.1):
+        super().__init__()
+
+        # 计算 patch 数量
+        self.num_patches = (image_size // patch_size) ** 2
+        self.patch_size = patch_size
+        self.d_model = d_model
+
+        # Patch Embedding：把每个 patch 线性投影到 d_model 维
+        self.patch_embed = nn.Conv2d(in_channels, d_model, kernel_size=patch_size, stride=patch_size)
+
+        # 位置编码
+        self.position_embedding = nn.Parameter(torch.randn(1, self.num_patches + 1, d_model))
+
+        # [CLS] 标记
+        self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
+
+        # Dropout
+        self.dropout = nn.Dropout(dropout)
+
+        # Transformer Encoder
+        self.encoder_layers = nn.ModuleList([
+            EncoderLayer(d_model, num_heads, d_ff)
+            for _ in range(num_layers)
+        ])
+
+        # 分类头
+        self.norm = nn.LayerNorm(d_model)
+        self.classifier = nn.Linear(d_model, num_classes)
+
+    def forward(self, x):
+        # x: (batch, in_channels, height, width)
+        batch = x.shape[0]
+
+        # Patch Embedding
+        # (batch, d_model, num_patches_h, num_patches_w) → 调整形状
+        x = self.patch_embed(x)  # (batch, d_model, h', w')
+        x = x.flatten(2)  # (batch, d_model, num_patches)
+        x = x.transpose(1, 2)  # (batch, num_patches, d_model)
+
+        # 添加 [CLS] 标记
+        cls_tokens = self.cls_token.expand(batch, -1, -1)  # (batch, 1, d_model)
+        x = torch.cat([cls_tokens, x], dim=1)  # (batch, num_patches+1, d_model)
+
+        # 添加位置编码
+        x = x + self.position_embedding
+        x = self.dropout(x)
+
+        # Transformer Encoder
+        for layer in self.encoder_layers:
+            x = layer(x)
+
+        # 取出 [CLS] 标记的输出
+        cls_output = x[:, 0, :]  # (batch, d_model)
+        cls_output = self.norm(cls_output)
+
+        # 分类
+        logits = self.classifier(cls_output)
+
+        return logits
+
+
+# 实践：MNIST 数字分类
+def train_mnist():
+    """在 MNIST 数据集上训练 ViT"""
+
+    print("=" * 70)
+    print("Vision Transformer (ViT) 手动实现")
+    print("实践任务：MNIST 手写数字分类（0-9）")
+    print("=" * 70)
+
+    # 设备
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"\n使用设备: {device}")
+
+    # 超参数
+    batch_size = 64
+    epochs = 20
+    learning_rate = 0.001
+
+    # 数据加载
+    transform = transforms.Compose([
+        transforms.Resize((32, 32)),
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+    train_dataset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    test_dataset = torchvision.datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+    print(f"训练集大小: {len(train_dataset)}")
+    print(f"测试集大小: {len(test_dataset)}")
+
+    # 创建模型
+    model = VisionTransformer(
+        image_size=32,
+        patch_size=4,
+        in_channels=1,
+        num_classes=10,
+        d_model=64,
+        num_heads=4,
+        num_layers=4,
+        d_ff=128,
+        dropout=0.1
+    ).to(device)
+
+    print(f"\n模型参数量: {sum(p.numel() for p in model.parameters()):,}")
+
+    # 训练配置
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    loss_fn = nn.CrossEntropyLoss()
+
+    # 训练
+    print("\n[训练阶段]")
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        correct = 0
+        total = 0
+
+        for batch_idx, (images, labels) in enumerate(train_loader):
+            images, labels = images.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = loss_fn(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+
+        accuracy = 100. * correct / total
+        avg_loss = total_loss / len(train_loader)
+
+        if (epoch + 1) % 5 == 0 or epoch == 0:
+            print(f"Epoch {epoch + 1:2d}/{epochs}, Loss: {avg_loss:.4f}, 训练准确率: {accuracy:.2f}%")
+
+    # 测试
+    print("\n[测试阶段]")
+    model.eval()
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+
+    test_accuracy = 100. * correct / total
+    print(f"测试准确率: {test_accuracy:.2f}%")
+
+    # 展示几个预测结果
+    print("\n[预测示例]")
+    model.eval()
+    with torch.no_grad():
+        sample_images, sample_labels = next(iter(test_loader))
+        sample_images = sample_images[:5].to(device)
+        sample_labels = sample_labels[:5]
+        outputs = model(sample_images)
+        _, predictions = outputs.max(1)
+
+        for i in range(5):
+            print(
+                f"  真实标签: {sample_labels[i].item()}, 预测: {predictions[i].item()} {'✅' if predictions[i].item() == sample_labels[i].item() else '❌'}")
+
+    print("\n" + "=" * 70)
+    print("=" * 70)
+
+    return model, test_accuracy
+
+
+if __name__ == "__main__":
+    model, acc = train_mnist()
