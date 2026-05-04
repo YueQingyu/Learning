@@ -78,7 +78,7 @@
 
 学习资料：
 
-- 课程/视频：
+- 课程/视频：李沐动手学深度学习，唐宇迪深度学习基础
 - 笔记链接：
 - 代码链接：
 
@@ -88,9 +88,8 @@
 |---|---|---|---|---|---|
 | CNN | 是 | 用单张猫图片进行分析 | 是 | 训练数据可能较少，没有进行广泛应用 | https://github.com/YueQingyu/Learning/blob/main/CNN%E4%BB%A3%E7%A0%81 |
 | LSTM | 是 | 给定前4个数值，预测第5个 | 是 | 初期梯度消失：通过 tanh 和 sigmoid 的合理初始化解决；必须手动维护 hidden state 和 cell state 的传递 | https://github.com/YueQingyu/Learning/blob/main/LSTM%E4%BB%A3%E7%A0%81 |
-| Transformer | 是 | 序列复制任务：给定输入序列 [a,b,c,d,e]，要求输出相同序列 [a,b,c,d,e]；使用随机生成的数字序列 | 是 | 训练初期Loss下降缓慢，调整学习率和增加层数后改善
-4. 对序列末尾位置的对应关系仍不够稳定 | https://github.com/YueQingyu/Learning/blob/main/Transformer%20%E4%BB%A3%E7%A0%81 |
-| Vision Transformer |  |  |  |  |  |
+| Transformer | 是 | 序列复制任务：给定输入序列 [a,b,c,d,e]，要求输出相同序列 [a,b,c,d,e]；使用随机生成的数字序列 | 是 | 训练初期Loss下降缓慢，调整学习率和增加层数后改善；对序列末尾位置的对应关系仍不够稳定 |https://github.com/YueQingyu/Learning/blob/main/Transformer%20%E4%BB%A3%E7%A0%81 |
+| Vision Transformer | 是 | MNIST 手写数字分类 | 是 | Patch Embedding 的理解和实现，[CLS] 标记和位置编码的处理 |  |
 
 请说明你对以下内容的理解：
 
@@ -120,10 +119,10 @@
 
 ### 5.2 Python 环境与 Linux
 
-- 是否能独立配置 Python 虚拟环境：
-- 是否使用过服务器/Linux：
-- 遇到过哪些环境问题：
-- 如何解决：
+- 是否能独立配置 Python 虚拟环境：是
+- 是否使用过服务器/Linux：否
+- 遇到过哪些环境问题：虚拟环境激活后 pip 安装位置仍指向全局；代码运行时报 RuntimeError: permute/sparse_coo 维度问题
+- 如何解决：创建虚拟环境时指定 Python 版本；换国内源加速下载
 
 ### 5.3 实验记录
 
