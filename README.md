@@ -77,7 +77,6 @@
 学习资料：
 
 - 课程/视频：李沐动手学深度学习，唐宇迪深度学习基础
-- 笔记链接：
 
 ## 4. 模型手写实现情况
 
@@ -112,7 +111,7 @@
 - [√] merge
 - [ ] 解决简单冲突
 
-仓库链接：
+仓库链接：https://github.com/YueQingyu/Learning
 
 ### 5.2 Python 环境与 Linux
 
@@ -174,4 +173,4 @@
 
 请附上相关链接：
 
-- 代码仓库：
+- 代码仓库：https://github.com/YueQingyu/Learning
